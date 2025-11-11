@@ -1,5 +1,7 @@
 # The Derstand Programming Language
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Kuai-Ying-Studio/derstand)
+
 ## Why Derstand? (Because is not unDerstand)
 
 - Written in Rust.
