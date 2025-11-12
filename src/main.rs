@@ -40,6 +40,7 @@ pub struct DerstandInterpreter {
     jump_table: JumpTable, // 优化后的跳转表
     input_buffer: Vec<u8>,
     output_buffer: Vec<u8>,
+    is_interactive_mode: bool, // 标记是否处于交互式模式
 }
 
 impl DerstandInterpreter {
@@ -55,6 +56,7 @@ impl DerstandInterpreter {
             },
             input_buffer: Vec::with_capacity(256),
             output_buffer: Vec::with_capacity(256),
+            is_interactive_mode: false,
         }
     }
 
@@ -113,7 +115,7 @@ impl DerstandInterpreter {
     }
 
     /// 执行编译后的指令 - 高度优化的执行循环
-    pub fn execute(&mut self) -> Result<String, String> {
+    pub fn execute(&mut self) -> Result<(), String> {
         self.pointer = 0;
         self.output_buffer.clear();
         
@@ -147,20 +149,27 @@ impl DerstandInterpreter {
                     pc += 1;
                 },
                 Instruction::Output => {
-                    // 批量输出优化
-                    self.output_buffer.push(self.memory[self.pointer]);
+                    // 直接输出字节，避免UTF-8转换问题
+                    let _ = io::stdout().write_all(&[self.memory[self.pointer]]);
+                    let _ = io::stdout().flush();
                     pc += 1;
                 },
                 Instruction::Input => {
-                    // 处理输入
+                    // 处理输入 - 根据模式不同处理方式不同
                     let byte = match self.input_buffer.pop() {
                         Some(b) => b,
                         None => {
-                            let mut input = [0u8];
-                            match io::stdin().read(&mut input) {
-                                Ok(1) => input[0],
-                                Ok(_) => 0,
-                                Err(e) => return Err(format!("Input error: {}", e)),
+                            if self.is_interactive_mode {
+                                // 交互式模式：从标准输入读取
+                                let mut input = [0u8];
+                                match io::stdin().read(&mut input) {
+                                    Ok(1) => input[0],
+                                    Ok(_) => 0,
+                                    Err(e) => return Err(format!("Input error: {}", e)),
+                                }
+                            } else {
+                                // 文件模式：遇到输入指令时提示错误并退出
+                                return Err("\nInput instruction found in file mode. File execution cannot handle input instructions. Please use interactive mode or modify your program to remove input instructions.".to_string());
                             }
                         },
                     };
@@ -216,8 +225,7 @@ impl DerstandInterpreter {
             }
         }
         
-        // 将输出缓冲区转换为字符串
-        Ok(String::from_utf8_lossy(&self.output_buffer).to_string())
+        Ok(())
     }
 }
 
@@ -226,7 +234,7 @@ fn main() {
     let mut interpreter = DerstandInterpreter::new();
     
     if args.len() > 1 {
-        // 文件模式
+        // 文件模式 - 设置为非交互式
         let file_path = &args[1];
         if !Path::new(file_path).exists() {
             eprintln!("File not found: {}", file_path);
@@ -246,10 +254,9 @@ fn main() {
                 let start_time = Instant::now();
                 
                 match interpreter.execute() {
-                    Ok(output) => {
+                    Ok(_) => {
                         // 结束计时并计算时间
                         let elapsed = start_time.elapsed();
-                        print!("{}", output);
                         println!("\nExecution time: {}.{} ms", elapsed.as_millis(), elapsed.subsec_micros() / 1000);
                     },
                     Err(e) => {
@@ -264,7 +271,9 @@ fn main() {
             },
         }
     } else {
-        // 交互式模式
+        // 交互式模式 - 设置为交互式
+        interpreter.is_interactive_mode = true;
+        
         println!("Derstand Interpreter v0.1.0");
         println!("Instructions: > < + - . , [ ] # $ % &");
         println!("Type 'quit' to exit.");
@@ -291,15 +300,10 @@ fn main() {
                     let start_time = Instant::now();
                     
                     match interpreter.execute() {
-                        Ok(output) => {
+                        Ok(_) => {
                             // 结束计时并计算时间
                             let elapsed = start_time.elapsed();
-                            if !output.is_empty() {
-                                println!("Output: {}", output);
-                            } else {
-                                println!("(no output)");
-                            }
-                            println!("Execution time: {}.{} ms", elapsed.as_millis(), elapsed.subsec_micros() / 1000);
+                            println!("\nExecution time: {}.{} ms", elapsed.as_millis(), elapsed.subsec_micros() / 1000);
                         },
                         Err(e) => println!("Execution error: {}", e),
                     }
